@@ -59,10 +59,26 @@ function setLoading(prefix, on) {
 }
 
 async function apiFetch(url) {
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-  return data;
+  let res;
+  try {
+    res = await fetch(url);
+  } catch {
+    throw new Error('Network error — could not reach the server.');
+  }
+
+  if (!res.ok) {
+    let detail;
+    try {
+      const errData = await res.json();
+      detail = errData.detail || `Server error (${res.status})`;
+    } catch {
+      // Response was not JSON (e.g. plain-text "Internal Server Error")
+      detail = `Server error (${res.status} ${res.statusText})`;
+    }
+    throw new Error(detail);
+  }
+
+  return res.json();
 }
 
 function showError(prefix, msg) {

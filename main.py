@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -5,6 +6,8 @@ from fastapi.responses import FileResponse
 import yfinance as yf
 import pandas as pd
 from typing import Optional
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = FastAPI(
     title="Stock Market Data API",
@@ -21,9 +24,13 @@ app.add_middleware(
 
 
 def fetch_ticker(ticker: str) -> yf.Ticker:
-    t = yf.Ticker(ticker)
-    info = t.info
-    if not info or info.get("regularMarketPrice") is None and info.get("currentPrice") is None:
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch data for '{ticker}': {e}")
+
+    if not info or (info.get("regularMarketPrice") is None and info.get("currentPrice") is None):
         raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found or has no market data.")
     return t
 
@@ -31,7 +38,7 @@ def fetch_ticker(ticker: str) -> yf.Ticker:
 @app.get("/", include_in_schema=False)
 def root():
     """Serve the frontend dashboard."""
-    return FileResponse("static/index.html")
+    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
 
 
 @app.get("/api", tags=["info"])
@@ -101,8 +108,11 @@ def get_history(
             detail=f"Invalid period '{period}'. Must be one of: {', '.join(sorted(VALID_PERIODS))}",
         )
 
-    t = yf.Ticker(ticker.upper())
-    df = t.history(period=period)
+    try:
+        t = yf.Ticker(ticker.upper())
+        df = t.history(period=period)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch history for '{ticker.upper()}': {e}")
 
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No historical data found for ticker '{ticker.upper()}'.")
@@ -133,13 +143,15 @@ def get_indicators(ticker: str):
     - **daily_change_pct**: Latest day's percentage price change
     - **signal**: `BUY` if latest close > MA50, otherwise `SELL`
 
-    Requires at least 50 days of trading history. Raises 404 if the ticker
-    is invalid or has insufficient data.
+    Requires at least 20 days of trading history.
 
     - **ticker**: Stock symbol, e.g. `AAPL`
     """
-    t = yf.Ticker(ticker.upper())
-    df = t.history(period="3mo")
+    try:
+        t = yf.Ticker(ticker.upper())
+        df = t.history(period="3mo")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch data for '{ticker.upper()}': {e}")
 
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data found for ticker '{ticker.upper()}'.")
@@ -162,10 +174,9 @@ def get_indicators(ticker: str):
     ma20_val = round(float(ma20.iloc[-1]), 4) if not ma20.empty else None
     ma50_val = round(float(ma50.iloc[-1]), 4) if ma50 is not None and not ma50.empty else None
 
-    if ma50_val is not None:
-        signal = "BUY" if latest_close > ma50_val else "SELL"
-    else:
-        signal = "INSUFFICIENT_DATA"
+    signal = "BUY" if ma50_val is not None and latest_close > ma50_val else (
+        "SELL" if ma50_val is not None else "INSUFFICIENT_DATA"
+    )
 
     return {
         "ticker": ticker.upper(),
@@ -221,4 +232,4 @@ def compare_tickers(
 
 
 # Mount static files last so API routes take priority
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
