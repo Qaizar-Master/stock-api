@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Market Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+          <polyline points="16 7 22 7 22 13"></polyline>
+        </svg>
+        <h1>Stock Market Dashboard</h1>
+      </div>
+      <p class="tagline">Real-time data &amp; technical analysis powered by yfinance</p>
+    </div>
+  </header>
+
+  <main>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="price">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Price
+      </button>
+      <button class="tab-btn" data-tab="history">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        History
+      </button>
+      <button class="tab-btn" data-tab="indicators">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Indicators
+      </button>
+      <button class="tab-btn" data-tab="compare">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="7" height="18"/><rect x="15" y="3" width="7" height="18"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
+        Compare
+      </button>
+    </nav>
+
+    <!-- PRICE TAB -->
+    <section id="price" class="tab-content active">
+      <div class="section-header">
+        <h2>Current Price Snapshot</h2>
+        <p>Fetch real-time price data for any stock ticker.</p>
+      </div>
+      <div class="input-row">
+        <input id="price-input" type="text" placeholder="Enter ticker (e.g. AAPL)" maxlength="10" />
+        <button id="price-btn" class="btn-primary" onclick="handlePrice()">Fetch Price</button>
+      </div>
+      <div id="price-error" class="error-msg hidden"></div>
+      <div id="price-loading" class="loading hidden">
+        <div class="spinner"></div><span>Fetching data…</span>
+      </div>
+      <div id="price-result" class="hidden">
+        <div class="ticker-banner">
+          <span id="price-ticker-label" class="ticker-badge"></span>
+          <span id="price-signal-label"></span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card highlight">
+            <span class="stat-label">Current Price</span>
+            <span id="stat-price" class="stat-value large"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Open</span>
+            <span id="stat-open" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Day High</span>
+            <span id="stat-high" class="stat-value green"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Day Low</span>
+            <span id="stat-low" class="stat-value red"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Volume</span>
+            <span id="stat-volume" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Market Cap</span>
+            <span id="stat-mcap" class="stat-value"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY TAB -->
+    <section id="history" class="tab-content">
+      <div class="section-header">
+        <h2>Historical OHLCV Chart</h2>
+        <p>View closing price history for any period.</p>
+      </div>
+      <div class="input-row">
+        <input id="history-input" type="text" placeholder="Enter ticker (e.g. TSLA)" maxlength="10" />
+        <select id="history-period" class="select-input">
+          <option value="1d">1 Day</option>
+          <option value="5d">5 Days</option>
+          <option value="1mo" selected>1 Month</option>
+          <option value="3mo">3 Months</option>
+          <option value="6mo">6 Months</option>
+          <option value="1y">1 Year</option>
+        </select>
+        <button id="history-btn" class="btn-primary" onclick="handleHistory()">Load Chart</button>
+      </div>
+      <div id="history-error" class="error-msg hidden"></div>
+      <div id="history-loading" class="loading hidden">
+        <div class="spinner"></div><span>Loading history…</span>
+      </div>
+      <div id="history-result" class="hidden">
+        <div class="chart-meta">
+          <span id="history-ticker-label" class="ticker-badge"></span>
+          <span id="history-period-label" class="period-label"></span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="historyChart"></canvas>
+        </div>
+        <div id="history-ohlcv-summary" class="ohlcv-bar"></div>
+      </div>
+    </section>
+
+    <!-- INDICATORS TAB -->
+    <section id="indicators" class="tab-content">
+      <div class="section-header">
+        <h2>Technical Indicators</h2>
+        <p>20 &amp; 50-day moving averages, daily change, and a BUY/SELL signal.</p>
+      </div>
+      <div class="input-row">
+        <input id="indicators-input" type="text" placeholder="Enter ticker (e.g. NVDA)" maxlength="10" />
+        <button id="indicators-btn" class="btn-primary" onclick="handleIndicators()">Analyze</button>
+      </div>
+      <div id="indicators-error" class="error-msg hidden"></div>
+      <div id="indicators-loading" class="loading hidden">
+        <div class="spinner"></div><span>Computing indicators…</span>
+      </div>
+      <div id="indicators-result" class="hidden">
+        <div class="ticker-banner">
+          <span id="ind-ticker-label" class="ticker-badge"></span>
+          <span id="ind-signal" class="signal-badge"></span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card highlight">
+            <span class="stat-label">Latest Close</span>
+            <span id="ind-close" class="stat-value large"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Daily Change</span>
+            <span id="ind-change" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">MA20</span>
+            <span id="ind-ma20" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">MA50</span>
+            <span id="ind-ma50" class="stat-value"></span>
+          </div>
+        </div>
+        <div id="ind-ma-chart-wrapper" class="chart-wrapper" style="margin-top:1.5rem">
+          <canvas id="indicatorsChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARE TAB -->
+    <section id="compare" class="tab-content">
+      <div class="section-header">
+        <h2>Multi-Ticker Comparison</h2>
+        <p>Compare latest price and 1-month performance across multiple stocks.</p>
+      </div>
+      <div class="input-row">
+        <input id="compare-input" type="text" placeholder="e.g. AAPL, MSFT, GOOGL, TSLA" />
+        <button id="compare-btn" class="btn-primary" onclick="handleCompare()">Compare</button>
+      </div>
+      <div id="compare-error" class="error-msg hidden"></div>
+      <div id="compare-loading" class="loading hidden">
+        <div class="spinner"></div><span>Fetching comparison data…</span>
+      </div>
+      <div id="compare-result" class="hidden">
+        <div class="chart-wrapper" style="margin-bottom:1.5rem">
+          <canvas id="compareChart"></canvas>
+        </div>
+        <div class="table-wrapper">
+          <table id="compare-table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Latest Close</th>
+                <th>1-Month Change</th>
+                <th>Trend</th>
+              </tr>
+            </thead>
+            <tbody id="compare-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Built with FastAPI &amp; yfinance &nbsp;·&nbsp; Data from Yahoo Finance &nbsp;·&nbsp;
+      <a href="/docs" target="_blank">Swagger API Docs</a>
+    </p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
