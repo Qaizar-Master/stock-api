@@ -1,4 +1,6 @@
 import os
+import time
+import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +11,38 @@ from typing import Optional
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ── Browser-like session so Yahoo Finance doesn't rate-limit cloud server IPs ──
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
+})
+
+# ── Simple in-memory TTL cache (5 minutes) ─────────────────────────────────────
+_cache: dict = {}
+CACHE_TTL = 300  # seconds
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and time.time() - entry["ts"] < CACHE_TTL:
+        return entry["data"]
+    return None
+
+def _cache_set(key: str, data):
+    _cache[key] = {"data": data, "ts": time.time()}
+
+def _ticker(symbol: str) -> yf.Ticker:
+    """Return a Ticker using the shared session."""
+    return yf.Ticker(symbol, session=_session)
+
+
+# ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Stock Market Data API",
     description="A FastAPI-based data engineering API for real-time and historical stock market data.",
@@ -23,17 +57,7 @@ app.add_middleware(
 )
 
 
-def fetch_ticker(ticker: str) -> yf.Ticker:
-    try:
-        t = yf.Ticker(ticker)
-        info = t.info
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch data for '{ticker}': {e}")
-
-    if not info or (info.get("regularMarketPrice") is None and info.get("currentPrice") is None):
-        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found or has no market data.")
-    return t
-
+# ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
 def root():
@@ -52,10 +76,10 @@ def api_info():
         "message": "Welcome to the Stock Market Data API",
         "description": "Real-time and historical stock data powered by yfinance and FastAPI.",
         "endpoints": {
-            "GET /price/{ticker}": "Current price snapshot for a stock",
-            "GET /history/{ticker}": "Historical OHLCV data (query param: period)",
+            "GET /price/{ticker}":      "Current price snapshot for a stock",
+            "GET /history/{ticker}":    "Historical OHLCV data (query param: period)",
             "GET /indicators/{ticker}": "Technical indicators: MA20, MA50, daily % change, BUY/SELL signal",
-            "GET /compare": "Side-by-side comparison of multiple tickers (query param: tickers)",
+            "GET /compare":             "Side-by-side comparison of multiple tickers (query param: tickers)",
         },
     }
 
@@ -65,24 +89,40 @@ def get_price(ticker: str):
     """
     Current price snapshot for a stock ticker.
 
-    Returns the latest price, open, high, low, volume, and market cap
-    fetched via yfinance `.info`. Raises 404 if the ticker is invalid.
+    Uses `fast_info` (fewer API calls than `.info`) to return the latest price,
+    open, high, low, volume, and market cap. Results are cached for 5 minutes.
 
     - **ticker**: Stock symbol, e.g. `AAPL`, `TSLA`, `MSFT`
     """
-    t = fetch_ticker(ticker.upper())
-    info = t.info
+    symbol = ticker.upper()
+    cached = _cache_get(f"price:{symbol}")
+    if cached:
+        return cached
 
-    price = info.get("currentPrice") or info.get("regularMarketPrice")
-    return {
-        "ticker": ticker.upper(),
-        "price": price,
-        "open": info.get("open") or info.get("regularMarketOpen"),
-        "high": info.get("dayHigh") or info.get("regularMarketDayHigh"),
-        "low": info.get("dayLow") or info.get("regularMarketDayLow"),
-        "volume": info.get("volume") or info.get("regularMarketVolume"),
-        "market_cap": info.get("marketCap"),
+    try:
+        t  = _ticker(symbol)
+        fi = t.fast_info
+        price = fi.last_price
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch data for '{symbol}': {e}")
+
+    if price is None:
+        raise HTTPException(status_code=404, detail=f"Ticker '{symbol}' not found or has no market data.")
+
+    def _r(v):
+        return round(float(v), 4) if v is not None else None
+
+    result = {
+        "ticker":     symbol,
+        "price":      _r(price),
+        "open":       _r(getattr(fi, "open",       None)),
+        "high":       _r(getattr(fi, "day_high",   None)),
+        "low":        _r(getattr(fi, "day_low",    None)),
+        "volume":     getattr(fi, "last_volume",   None),
+        "market_cap": getattr(fi, "market_cap",    None),
     }
+    _cache_set(f"price:{symbol}", result)
+    return result
 
 
 VALID_PERIODS = {"1d", "5d", "1mo", "3mo", "6mo", "1y"}
@@ -97,7 +137,7 @@ def get_history(
     Historical OHLCV data for a stock ticker.
 
     Returns a list of daily records containing date, open, high, low, close,
-    and volume. Use the `period` query parameter to control the time range.
+    and volume. Results are cached per ticker+period for 5 minutes.
 
     - **ticker**: Stock symbol, e.g. `AAPL`
     - **period**: One of `1d`, `5d`, `1mo`, `3mo`, `6mo`, `1y` (default: `1mo`)
@@ -108,28 +148,36 @@ def get_history(
             detail=f"Invalid period '{period}'. Must be one of: {', '.join(sorted(VALID_PERIODS))}",
         )
 
+    symbol = ticker.upper()
+    cache_key = f"history:{symbol}:{period}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
     try:
-        t = yf.Ticker(ticker.upper())
-        df = t.history(period=period)
+        df = _ticker(symbol).history(period=period)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch history for '{ticker.upper()}': {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch history for '{symbol}': {e}")
 
     if df.empty:
-        raise HTTPException(status_code=404, detail=f"No historical data found for ticker '{ticker.upper()}'.")
+        raise HTTPException(status_code=404, detail=f"No historical data found for ticker '{symbol}'.")
 
     df.index = df.index.strftime("%Y-%m-%d")
-    records = []
-    for date, row in df.iterrows():
-        records.append({
-            "date": date,
-            "open": round(row["Open"], 4),
-            "high": round(row["High"], 4),
-            "low": round(row["Low"], 4),
-            "close": round(row["Close"], 4),
+    records = [
+        {
+            "date":   date,
+            "open":   round(row["Open"],  4),
+            "high":   round(row["High"],  4),
+            "low":    round(row["Low"],   4),
+            "close":  round(row["Close"], 4),
             "volume": int(row["Volume"]),
-        })
+        }
+        for date, row in df.iterrows()
+    ]
 
-    return {"ticker": ticker.upper(), "period": period, "data": records}
+    result = {"ticker": symbol, "period": period, "data": records}
+    _cache_set(cache_key, result)
+    return result
 
 
 @app.get("/indicators/{ticker}")
@@ -143,49 +191,55 @@ def get_indicators(ticker: str):
     - **daily_change_pct**: Latest day's percentage price change
     - **signal**: `BUY` if latest close > MA50, otherwise `SELL`
 
-    Requires at least 20 days of trading history.
+    Results are cached for 5 minutes.
 
     - **ticker**: Stock symbol, e.g. `AAPL`
     """
+    symbol = ticker.upper()
+    cached = _cache_get(f"indicators:{symbol}")
+    if cached:
+        return cached
+
     try:
-        t = yf.Ticker(ticker.upper())
-        df = t.history(period="3mo")
+        df = _ticker(symbol).history(period="3mo")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch data for '{ticker.upper()}': {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch data for '{symbol}': {e}")
 
     if df.empty:
-        raise HTTPException(status_code=404, detail=f"No data found for ticker '{ticker.upper()}'.")
+        raise HTTPException(status_code=404, detail=f"No data found for ticker '{symbol}'.")
 
     if len(df) < 20:
         raise HTTPException(
             status_code=422,
-            detail=f"Not enough data to compute indicators for '{ticker.upper()}' (need at least 20 trading days).",
+            detail=f"Not enough data to compute indicators for '{symbol}' (need at least 20 trading days).",
         )
 
     close = df["Close"]
-
     ma20 = close.rolling(window=20).mean().dropna()
     ma50 = close.rolling(window=50).mean().dropna() if len(close) >= 50 else None
 
-    latest_close = round(float(close.iloc[-1]), 4)
-    prev_close = round(float(close.iloc[-2]), 4)
+    latest_close     = round(float(close.iloc[-1]), 4)
+    prev_close       = round(float(close.iloc[-2]), 4)
     daily_change_pct = round(((latest_close - prev_close) / prev_close) * 100, 4)
-
     ma20_val = round(float(ma20.iloc[-1]), 4) if not ma20.empty else None
     ma50_val = round(float(ma50.iloc[-1]), 4) if ma50 is not None and not ma50.empty else None
 
-    signal = "BUY" if ma50_val is not None and latest_close > ma50_val else (
-        "SELL" if ma50_val is not None else "INSUFFICIENT_DATA"
+    signal = (
+        "BUY"  if ma50_val is not None and latest_close > ma50_val else
+        "SELL" if ma50_val is not None else
+        "INSUFFICIENT_DATA"
     )
 
-    return {
-        "ticker": ticker.upper(),
-        "latest_close": latest_close,
-        "MA20": ma20_val,
-        "MA50": ma50_val,
+    result = {
+        "ticker":          symbol,
+        "latest_close":    latest_close,
+        "MA20":            ma20_val,
+        "MA50":            ma50_val,
         "daily_change_pct": daily_change_pct,
-        "signal": signal,
+        "signal":          signal,
     }
+    _cache_set(f"indicators:{symbol}", result)
+    return result
 
 
 @app.get("/compare")
@@ -195,12 +249,9 @@ def compare_tickers(
     """
     Side-by-side comparison of multiple stock tickers.
 
-    Accepts a comma-separated `tickers` query parameter and returns for each:
-    - **latest_close**: Most recent closing price
-    - **change_1mo_pct**: Percentage price change over the past 1 month
-
-    Tickers with no available data are reported with `null` values rather than
-    causing the entire request to fail.
+    Returns latest closing price and 1-month % change for each ticker.
+    Tickers with no data return `null` values instead of failing the whole request.
+    Results are cached per ticker for 5 minutes.
 
     - **tickers**: Comma-separated stock symbols, e.g. `?tickers=AAPL,MSFT,GOOGL`
     """
@@ -208,23 +259,30 @@ def compare_tickers(
 
     if not ticker_list:
         raise HTTPException(status_code=400, detail="No valid tickers provided.")
-
     if len(ticker_list) > 10:
         raise HTTPException(status_code=400, detail="Maximum of 10 tickers allowed per request.")
 
     results = {}
     for sym in ticker_list:
+        cache_key = f"compare:{sym}"
+        cached = _cache_get(cache_key)
+        if cached:
+            results[sym] = cached
+            continue
+
         try:
-            df = yf.Ticker(sym).history(period="1mo")
+            df = _ticker(sym).history(period="1mo")
             if df.empty or len(df) < 2:
                 results[sym] = {"latest_close": None, "change_1mo_pct": None, "error": "No data available"}
                 continue
 
-            latest = round(float(df["Close"].iloc[-1]), 4)
-            earliest = round(float(df["Close"].iloc[0]), 4)
+            latest     = round(float(df["Close"].iloc[-1]), 4)
+            earliest   = round(float(df["Close"].iloc[0]),  4)
             change_pct = round(((latest - earliest) / earliest) * 100, 4)
 
-            results[sym] = {"latest_close": latest, "change_1mo_pct": change_pct}
+            entry = {"latest_close": latest, "change_1mo_pct": change_pct}
+            _cache_set(cache_key, entry)
+            results[sym] = entry
         except Exception as e:
             results[sym] = {"latest_close": None, "change_1mo_pct": None, "error": str(e)}
 
