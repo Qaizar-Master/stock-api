@@ -4,4 +4,4 @@ yfinance>=0.2.50
 pandas
 httpx
 aiofiles
-requests
+curl_cffi
