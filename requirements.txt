@@ -3,7 +3,7 @@ uvicorn[standard]
 yfinance>=0.2.50
 pandas
 numpy
-tensorflow
+tensorflow-cpu
 scikit-learn
 httpx
 aiofiles
