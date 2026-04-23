@@ -40,6 +40,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="7" height="18"/><rect x="15" y="3" width="7" height="18"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
         Compare
       </button>
+      <button class="tab-btn" data-tab="predict">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2 16 8 10 13 13 18 7"/><polyline points="18 7 22 3" stroke-dasharray="3 2"/><circle cx="22" cy="3" r="1.5" fill="currentColor" stroke="none"/></svg>
+        Predict
+      </button>
     </nav>
 
     <!-- PRICE TAB -->
@@ -49,7 +53,7 @@
         <p>Fetch real-time price data for any stock ticker.</p>
       </div>
       <div class="input-row">
-        <input id="price-input" type="text" placeholder="Enter ticker (e.g. AAPL)" maxlength="10" />
+        <input id="price-input" type="text" placeholder="Enter ticker (e.g. NVDA)" maxlength="10" />
         <button id="price-btn" class="btn-primary" onclick="handlePrice()">Fetch Price</button>
       </div>
       <div id="price-error" class="error-msg hidden"></div>
@@ -174,7 +178,7 @@
         <p>Compare latest price and 1-month performance across multiple stocks.</p>
       </div>
       <div class="input-row">
-        <input id="compare-input" type="text" placeholder="e.g. AAPL, MSFT, GOOGL, TSLA" />
+        <input id="compare-input" type="text" placeholder="e.g. NVDA, MSFT, GOOGL, TSLA" />
         <button id="compare-btn" class="btn-primary" onclick="handleCompare()">Compare</button>
       </div>
       <div id="compare-error" class="error-msg hidden"></div>
@@ -197,6 +201,82 @@
             </thead>
             <tbody id="compare-tbody"></tbody>
           </table>
+        </div>
+      </div>
+    </section>
+    <!-- PREDICT TAB -->
+    <section id="predict" class="tab-content">
+      <div class="section-header">
+        <h2>Next-Day Price Prediction</h2>
+        <p>Uses an LSTM neural network trained on closing prices and EMA-9, EMA-21, EMA-50.</p>
+      </div>
+      <div class="input-row">
+        <input id="predict-input" type="text" placeholder="Enter ticker (e.g. AAPL)" maxlength="10" />
+        <button id="predict-btn" class="btn-primary" onclick="handlePredict()">Predict</button>
+      </div>
+      <div id="predict-error" class="error-msg hidden"></div>
+      <div id="predict-loading" class="loading hidden">
+        <div class="spinner"></div><span>Training model…</span>
+      </div>
+      <div id="predict-result" class="hidden">
+        <div class="ticker-banner">
+          <span id="predict-ticker-label" class="ticker-badge"></span>
+          <span id="predict-direction" class="signal-badge"></span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card highlight">
+            <span class="stat-label">Last Close</span>
+            <span id="pred-last-close" class="stat-value large"></span>
+          </div>
+          <div class="stat-card highlight-purple">
+            <span class="stat-label">Predicted Next Close</span>
+            <span id="pred-next-close" class="stat-value large"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Expected Change</span>
+            <span id="pred-change" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">EMA-9</span>
+            <span id="pred-ema9" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">EMA-21</span>
+            <span id="pred-ema21" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">EMA-50</span>
+            <span id="pred-ema50" class="stat-value"></span>
+          </div>
+        </div>
+        <div class="metrics-header">Model Accuracy <span class="period-label">held-out test set</span></div>
+        <div class="stats-grid" style="margin-bottom:1rem">
+          <div class="stat-card">
+            <span class="stat-label">MAE</span>
+            <span id="pred-mae" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">RMSE</span>
+            <span id="pred-rmse" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">MAPE</span>
+            <span id="pred-mape" class="stat-value"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Directional Accuracy</span>
+            <span id="pred-dir-acc" class="stat-value"></span>
+          </div>
+        </div>
+
+        <div id="predict-chart-wrapper" class="chart-wrapper" style="margin-top:1.5rem">
+          <canvas id="predictChart"></canvas>
+        </div>
+        <div class="note-box">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Educational model only — not financial advice. &nbsp;|&nbsp;
+          <span id="pred-model-status"></span> on <span id="pred-samples"></span> trading days.
+          Model auto-retrains after 24 hours.
         </div>
       </div>
     </section>

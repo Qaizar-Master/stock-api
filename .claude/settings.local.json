@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -c ' *)",
+      "Bash(node --check \"C:/College/TY-SEM-2/MLOPS/stock-api-new/static/app.js\")"
+    ]
+  }
+}

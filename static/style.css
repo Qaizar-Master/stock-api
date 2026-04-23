@@ -242,7 +242,8 @@ main {
 }
 
 .stat-card:hover   { border-color: var(--accent); }
-.stat-card.highlight { border-color: rgba(59,130,246,.5); background: rgba(59,130,246,.07); }
+.stat-card.highlight        { border-color: rgba(59,130,246,.5);  background: rgba(59,130,246,.07); }
+.stat-card.highlight-purple { border-color: rgba(167,139,250,.5); background: rgba(167,139,250,.07); }
 
 .stat-label { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
 .stat-value { font-size: 1.1rem; font-weight: 600; }
@@ -324,6 +325,33 @@ tbody tr:last-child td { border-bottom: none; }
 
 .trend-up   { color: var(--green); font-size: 1.1rem; }
 .trend-down { color: var(--red);   font-size: 1.1rem; }
+
+/* ─── Metrics Header ─────────────────────────────────────────── */
+.metrics-header {
+  font-size: .8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 1.4rem 0 .6rem;
+}
+
+/* ─── Predict Note Box ───────────────────────────────────────── */
+.note-box {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-top: 1.1rem;
+  padding: .7rem 1rem;
+  background: rgba(148,163,184,.07);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: .8rem;
+}
 
 /* ─── Footer ─────────────────────────────────────────────────── */
 footer {

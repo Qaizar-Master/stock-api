@@ -4,6 +4,7 @@
 let historyChartInst    = null;
 let indicatorsChartInst = null;
 let compareChartInst    = null;
+let predictChartInst    = null;
 
 // ─── Shared Chart defaults ────────────────────────────────────────
 Chart.defaults.color          = '#94a3b8';
@@ -22,7 +23,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // Allow Enter key in inputs
-['price-input', 'history-input', 'indicators-input', 'compare-input'].forEach(id => {
+['price-input', 'history-input', 'indicators-input', 'compare-input', 'predict-input'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('keydown', e => { if (e.key === 'Enter') el.nextElementSibling?.click() || el.closest('.input-row')?.querySelector('.btn-primary')?.click(); });
@@ -311,6 +312,171 @@ async function handleIndicators() {
   } finally {
     setLoading('indicators', false);
     setBtn('indicators-btn', false);
+  }
+}
+
+// ─── PREDICT ─────────────────────────────────────────────────────
+async function handlePredict() {
+  const ticker = document.getElementById('predict-input').value.trim().toUpperCase();
+  if (!ticker) { showError('predict', 'Please enter a ticker symbol.'); return; }
+
+  setBtn('predict-btn', true);
+  setLoading('predict', true);
+
+  // Check model status first (instant disk check) so we can show the right message
+  try {
+    const info = await apiFetch(`/model-info/${ticker}`);
+    const willTrain = !info.model_saved || !info.fresh;
+    document.querySelector('#predict-loading span').textContent = willTrain
+      ? 'Training new model…'
+      : `Loading saved model (${info.age_hours}h old)…`;
+  } catch { /* non-critical — ignore and keep default text */ }
+
+  try {
+    const d = await apiFetch(`/predict/${ticker}`);
+
+    const diff    = d.predicted_next_close - d.last_close;
+    const diffPct = (diff / d.last_close) * 100;
+    const up      = diff >= 0;
+
+    text('predict-ticker-label', d.symbol);
+    text('pred-last-close',  `$${fmt(d.last_close)}`);
+    text('pred-next-close',  `$${fmt(d.predicted_next_close)}`);
+    text('pred-ema9',  `$${fmt(d.ema9)}`);
+    text('pred-ema21', `$${fmt(d.ema21)}`);
+    text('pred-ema50', `$${fmt(d.ema50)}`);
+    text('pred-samples', d.training_samples);
+    text('pred-model-status', d.model_status === 'loaded' ? 'Loaded saved model' : 'Newly trained model');
+
+    // Accuracy metrics
+    const m = d.metrics || {};
+    text('pred-mae',     m.test_mae  != null ? `$${fmt(m.test_mae)}`  : '—');
+    text('pred-rmse',    m.test_rmse != null ? `$${fmt(m.test_rmse)}` : '—');
+    text('pred-mape',    m.test_mape != null ? `${fmt(m.test_mape)}%` : '—');
+    const accEl = document.getElementById('pred-dir-acc');
+    if (accEl && m.directional_accuracy != null) {
+      accEl.textContent = `${fmt(m.directional_accuracy)}%`;
+      accEl.className   = `stat-value ${m.directional_accuracy >= 50 ? 'green' : 'red'}`;
+    }
+
+    const changeEl = document.getElementById('pred-change');
+    changeEl.textContent = `${up ? '+' : ''}${fmt(diff)} (${up ? '+' : ''}${fmt(diffPct)}%)`;
+    changeEl.className   = `stat-value ${up ? 'green' : 'red'}`;
+
+    const dirEl = document.getElementById('predict-direction');
+    dirEl.textContent = up ? '▲ UP' : '▼ DOWN';
+    dirEl.className   = `signal-badge ${up ? 'signal-buy' : 'signal-sell'}`;
+
+    // Show stat cards now — canvas must be visible before Chart.js can measure it
+    show('predict-result');
+
+    // ── Chart: use series already embedded in predict response (no extra fetch) ──
+    try {
+      const labels  = d.chart.labels;
+      const closes  = d.chart.close;
+      const ema9arr  = d.chart.ema9;
+      const ema21arr = d.chart.ema21;
+      const ema50arr = d.chart.ema50;
+
+      // Append a "Tomorrow" point for the prediction
+      const allLabels  = [...labels,   'Tomorrow'];
+      const allCloses  = [...closes,   null];             // gap so it doesn't draw a line to the dot
+      const allEma9    = [...ema9arr,  null];
+      const allEma21   = [...ema21arr, null];
+      const allEma50   = [...ema50arr, null];
+      const predDot    = [...closes.map(() => null), d.predicted_next_close];
+
+      if (predictChartInst) predictChartInst.destroy();
+      predictChartInst = new Chart(document.getElementById('predictChart'), {
+        type: 'line',
+        data: {
+          labels: allLabels,
+          datasets: [
+            {
+              label: 'Close',
+              data: allCloses,
+              borderColor: '#60a5fa',
+              backgroundColor: 'rgba(96,165,250,.07)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0,
+              borderWidth: 2,
+              spanGaps: false,
+            },
+            {
+              label: 'EMA-9',
+              data: allEma9,
+              borderColor: '#f59e0b',
+              borderDash: [4, 3],
+              tension: 0.3,
+              pointRadius: 0,
+              borderWidth: 1.5,
+              fill: false,
+              spanGaps: false,
+            },
+            {
+              label: 'EMA-21',
+              data: allEma21,
+              borderColor: '#a78bfa',
+              borderDash: [6, 4],
+              tension: 0.3,
+              pointRadius: 0,
+              borderWidth: 1.5,
+              fill: false,
+              spanGaps: false,
+            },
+            {
+              label: 'EMA-50',
+              data: allEma50,
+              borderColor: '#34d399',
+              borderDash: [8, 5],
+              tension: 0.3,
+              pointRadius: 0,
+              borderWidth: 1.5,
+              fill: false,
+              spanGaps: false,
+            },
+            {
+              label: 'Predicted',
+              data: predDot,
+              borderColor: d.predicted_next_close >= d.last_close ? '#10b981' : '#ef4444',
+              backgroundColor: d.predicted_next_close >= d.last_close ? '#10b981' : '#ef4444',
+              pointRadius: arr => arr.dataIndex === allLabels.length - 1 ? 8 : 0,
+              pointHoverRadius: 10,
+              borderWidth: 0,
+              fill: false,
+              spanGaps: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'top', labels: { boxWidth: 12, padding: 14 } },
+            tooltip: {
+              callbacks: {
+                label: ctx => ctx.parsed.y != null
+                  ? ` ${ctx.dataset.label}: $${fmt(ctx.parsed.y)}`
+                  : null,
+                filter: item => item.parsed.y != null,
+              },
+            },
+          },
+          scales: {
+            x: { grid: { color: '#1e293b' }, ticks: { maxTicksLimit: 8, maxRotation: 0 } },
+            y: { grid: { color: '#1e293b' }, ticks: { callback: v => `$${fmt(v)}` } },
+          },
+        },
+      });
+    } catch { /* chart is non-critical — stat cards are already visible */ }
+
+  } catch (e) {
+    showError('predict', e.message);
+  } finally {
+    setLoading('predict', false);
+    setBtn('predict-btn', false);
+    document.querySelector('#predict-loading span').textContent = 'Training model…'; // reset for next use
   }
 }
 

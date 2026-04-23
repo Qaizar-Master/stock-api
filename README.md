@@ -1,5 +1,7 @@
 # Stock Market Dashboard
 
+[![CI](https://github.com/Qaizar-Master/stock-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Qaizar-Master/stock-api/actions/workflows/ci.yml)
+
 A full-stack stock market data app with a real-time web dashboard and a REST API backend, built with **FastAPI** and **yfinance**. Developed as part of a college MLOps mini-project (Project 12 — Continuous Delivery of Flask/FastAPI Data Engineering API).
 
 ---
@@ -11,7 +13,9 @@ A full-stack stock market data app with a real-time web dashboard and a REST API
 - Historical OHLCV charts with Chart.js (1d → 1y range)
 - Technical indicators: MA20, MA50, daily % change, BUY/SELL signal with overlay chart
 - Multi-ticker comparison bar chart and table with 1-month performance
+- **Next-day price prediction** using Linear Regression + EMA-9/21/50 features
 - Auto-generated Swagger UI at `/docs`
+- GitHub Actions CI pipeline (runs tests on every push/PR)
 
 ---
 
@@ -19,14 +23,19 @@ A full-stack stock market data app with a real-time web dashboard and a REST API
 
 ```
 stock-api/
-├── main.py             # FastAPI app — API routes + static file serving
-├── requirements.txt    # Python dependencies
-├── render.yaml         # Render deployment config
+├── main.py                        # FastAPI app — API routes + static file serving
+├── requirements.txt               # Python dependencies
+├── render.yaml                    # Render deployment config
 ├── README.md
+├── tests/
+│   └── test_main.py               # Pytest test suite
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # GitHub Actions CI pipeline
 └── static/
-    ├── index.html      # Single-page dashboard
-    ├── style.css       # Dark-theme styles
-    └── app.js          # Fetch calls + Chart.js rendering
+    ├── index.html                 # Single-page dashboard
+    ├── style.css                  # Dark-theme styles
+    └── app.js                     # Fetch calls + Chart.js rendering
 ```
 
 ---
@@ -41,6 +50,7 @@ stock-api/
 | GET | `/history/{ticker}` | Historical OHLCV data |
 | GET | `/indicators/{ticker}` | Technical indicators and BUY/SELL signal |
 | GET | `/compare` | Side-by-side comparison of multiple tickers |
+| GET | `/predict/{symbol}` | Next-day closing price prediction (Linear Regression + EMA) |
 
 ### Example API URLs
 
@@ -54,6 +64,24 @@ GET /indicators/AAPL
 GET /indicators/NVDA
 GET /compare?tickers=AAPL,MSFT,GOOGL
 GET /compare?tickers=TSLA,AMZN,META,NVDA
+GET /predict/AAPL
+GET /predict/TSLA
+```
+
+### `/predict/{symbol}` response
+
+```json
+{
+  "symbol": "AAPL",
+  "last_close": 213.49,
+  "ema9": 211.32,
+  "ema21": 209.87,
+  "ema50": 207.11,
+  "predicted_next_close": 214.02,
+  "model": "LinearRegression",
+  "training_samples": 124,
+  "note": "Educational model only — not financial advice."
+}
 ```
 
 ### Valid `period` values for `/history/{ticker}`
@@ -126,6 +154,8 @@ Every subsequent push to the connected branch triggers an **automatic redeploy**
 - [FastAPI](https://fastapi.tiangolo.com/) — API framework + static file serving
 - [yfinance](https://github.com/ranaroussi/yfinance) — Yahoo Finance market data
 - [pandas](https://pandas.pydata.org/) — moving average calculations
+- [scikit-learn](https://scikit-learn.org/) — Linear Regression for price prediction
 - [Chart.js](https://www.chartjs.org/) — frontend charting (loaded from CDN)
 - [uvicorn](https://www.uvicorn.org/) — ASGI server
+- [GitHub Actions](https://github.com/features/actions) — CI pipeline (test on push/PR)
 - [Render](https://render.com) — cloud deployment with CD
