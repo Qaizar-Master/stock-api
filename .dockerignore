@@ -1,8 +1,0 @@
-.git
-__pycache__
-*.pyc
-*.pyo
-models/
-.pytest_cache
-.python-version
-*.md
