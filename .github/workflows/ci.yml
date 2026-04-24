@@ -24,3 +24,6 @@ jobs:
 
       - name: Verify app loads
         run: python -c "from main import app; print('App loaded OK')"
+
+      - name: Build Docker image
+        run: docker build -t stock-api .
